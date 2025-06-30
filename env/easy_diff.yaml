@@ -1,0 +1,55 @@
+world:
+  height: 14
+  width: 14
+  step_time: 0.1
+  sample_time: 0.1
+  offset: [0, 0]
+  collision_mode: 'stop'  # 'stop', 'unobstructed', 'reactive'
+  control_mode: 'auto'  # 'keyboard', 'auto'
+
+#  - kinematics: {name: 'diff'}
+robot:
+  - kinematics: {name: 'diff'}
+    shape: {name: 'rectangle', length: 1, width: 0.62, wheelbase: 0.68}
+    state: [1, 1, 0, 0]
+    goal: [10, 1, 0, 0]
+    vel_min: [-2, -1]
+    vel_max: [2, 1]
+    acce: [5, 3.1416]
+    goal_threshold: 0.5
+    behavior: {name: 'dash'}
+    plot:
+      show_trail: False
+      show_goal: True
+      show_trajectory: False
+
+    sensors:
+      - type: 'lidar2d'
+        range_min: 0
+        range_max: 8
+        angle_range: 6.2483
+        number: 180
+        noise: False
+        offset: [0.3, 0, 0]
+
+obstacle:
+  - number: 8
+    distribution: {name: 'manual'}
+    shape:
+      - {name: 'rectangle', length: 14.5, width: 0.5}
+      - {name: 'rectangle', length: 14.5, width: 0.5}
+      - {name: 'rectangle', length: 14.5, width: 0.5}
+      - {name: 'rectangle', length: 14.5, width: 0.5}
+      - {name: 'circle', radius: 1}
+      - {name: 'circle', radius: 1}
+      - {name: 'circle', radius: 1}
+      - {name: 'circle', radius: 1}
+    state:
+      - [7, 14.25, 0]
+      - [7, -0.25, 0]
+      - [-0.25, 7, 1.5708]
+      - [14.25, 7, 1.5708]
+      - [4, 4, 0]
+      - [10, 4, 0]
+      - [4, 10, 0]
+      - [10, 10, 0]

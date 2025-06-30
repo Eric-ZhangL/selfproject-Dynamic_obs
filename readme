@@ -1,0 +1,9 @@
+pip install gym
+
+pip install ir-sim   
+
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118   #https://pytorch.org/get-started/locally/  根据配置修改
+
+pip install stable-baselines3[extra]    #https://stable-baselines3.readthedocs.io/en/master/guide/install.html
+
+pip install 'shimmy>=2.0'

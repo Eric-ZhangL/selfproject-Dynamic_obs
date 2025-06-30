@@ -1,0 +1,30 @@
+world:
+  height: 23
+  width: 70
+  step_time: 0.1  # 10Hz calculate each step
+  sample_time: 0.1  # 10 Hz for render and data extraction
+  offset: [-3, 10] # the offset of the world on x and y
+  collision_mode: 'unobstructed_obstacles'  # 'stop', 'unobstructed', 'reactive', 'unobstructed_obstacles'
+  control_mode: 'auto'  # 'keyboard', 'auto'
+
+robot:
+  - kinematics: {name: 'diff'}  # omni, diff, acker
+    shape: {name: 'circle', radius: 0.2}  # radius
+    # shape: {name: 'rectangle', length: 0.5, width: 0.2}  # radius
+    state: [0, 20, 0]
+    goal: [60, 20, 0]
+    # acce: [3, .inf]   # acce of [linear, angular]  or [v_x, v_y] or [linear, steer]
+    behavior: {name: 'dash'} # move toward to the goal directly
+
+obstacle:
+  - number: 6
+    distribution: {name: 'manual'}
+    shape:
+      - {name: 'rectangle', length: 70, width: 2}
+      - {name: 'rectangle', length: 70, width: 2}
+      - {name: 'rectangle', length: 5, width: 2}
+      - {name: 'rectangle', length: 5, width: 2}
+      - {name: 'rectangle', length: 6, width: 2}
+      - {name: 'rectangle', length: 5, width: 2}
+
+    state: [[30, 25, 0], [30, 15, 0], [10, 18.5, 1.57], [23, 21.5, 1.57], [36, 17, 2.1], [50, 22, 4.3] ]

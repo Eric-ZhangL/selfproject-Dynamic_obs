@@ -1,0 +1,54 @@
+world:
+  height: 23
+  width: 70
+  step_time: 0.1
+  sample_time: 0.1
+  offset: [-3, 10]
+  collision_mode: 'stop'  # 'stop', 'unobstructed', 'reactive'
+  control_mode: 'auto'  # 'keyboard', 'auto'
+
+robot:
+  - number: 2
+    kinematics: {name: 'acker'}
+    shape: {name: 'rectangle', length: 1, width: 0.62, wheelbase: 0.68}
+    state: [[-5, 20, 0, 0],[0, 20, 0, 0]]
+    goal: [60, 20, 0]
+    vel_min: [-8, -1]
+    vel_max: [8, 1]
+    acce: 4
+    goal_threshold: 0.5
+    behavior: {name: 'dash'}
+    plot:
+      show_trail: False
+      show_goal: True
+      show_trajectory: False
+
+    sensors:
+      - type: 'lidar2d'
+        range_min: 0
+        range_max: 8
+        angle_range: 6.2483
+        number: 180
+        noise: False
+        offset: [1.5,0,0]
+
+obstacle:
+  - number: 6
+    distribution: {name: 'manual'}
+    shape:
+      - {name: 'rectangle', length: 70, width: 2}
+      - {name: 'rectangle', length: 70, width: 2}
+      - {name: 'rectangle', length: 5, width: 2}
+      - {name: 'rectangle', length: 5, width: 2}
+      - {name: 'rectangle', length: 6, width: 2}
+      - {name: 'rectangle', length: 5, width: 2}
+
+    state: [[30, 25, 0], [30, 15, 0], [10, 18.5, 1.57], [23, 21.5, 1.57], [36, 17, 2.1], [50, 22, 4.3] ]
+
+
+
+
+
+
+
+
