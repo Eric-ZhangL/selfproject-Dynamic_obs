@@ -294,7 +294,7 @@ if __name__ == "__main__":
 
     # model = SAC.load("sequence_moving_models/akm_best_model", env=env)
     # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)
-    model = SAC.load("sequence_moving_models/new_best_model", env=env)
+    model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/new_best_model", env=env)
     # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)
     # 评估
     mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=50)
