@@ -281,8 +281,8 @@ class LaserGoalFeatureExtractor(BaseFeaturesExtractor):       #继承自 SB3 的
 
         # last = attn_output[:, -1, :]  对序列的每个时间步特征取均值，得到一组融合特征，再经过线性变换+ReLU激活，输出该时刻的特征向量（用于后续策略或价值网络）。
         pool = attn_output.mean(dim=1)
-        action = F.relu(self.fc(pool))
-        return action
+        feature = F.relu(self.fc(pool))   #fc 在初始化的时候已经定义输出维度了  实际上是features_dim  256
+        return feature       #  非动作  应该是观测值 256
 
     def forward_actor(self, features: torch.Tensor) -> torch.Tensor:
         return self.policy_net(features)
@@ -292,14 +292,14 @@ class LaserGoalFeatureExtractor(BaseFeaturesExtractor):       #继承自 SB3 的
 
 
 if __name__ == "__main__":
-    # 创建环境
+        # 创建环境
     env = IRSIMEnv('env/moving.yaml', display=True)
 
-    # 模型保存目录
+        # 模型保存目录
     log_dir = "./sequence_moving_models"     #创建一个目录 ./sequence_moving_models 用于保存模型、日志和中间结果。
     os.makedirs(log_dir, exist_ok=True)      #exist_ok=True 表示：如果目录已存在就不会报错。   
 
-    #评估回调函数（EvalCallback）   训练过程中，定期（每 eval_freq 步）在环境上评估模型表现； 如果发现新的更优模型（例如 reward 更高），就会保存到 best_model_save_path 指定的目录；
+        #评估回调函数（EvalCallback）   训练过程中，定期（每 eval_freq 步）在环境上评估模型表现； 如果发现新的更优模型（例如 reward 更高），就会保存到 best_model_save_path 指定的目录；
     callback_save_best_model = EvalCallback(
         env,                          # 评估环境
         best_model_save_path=log_dir,  # 保存“当前最优模型”的路径
@@ -309,17 +309,18 @@ if __name__ == "__main__":
         render=False                  # 是否在评估时可视化渲染
     )   
     
-    # 回调函数就是训练过程中的“自动监视器”，在关键节点自动执行某些任务（保存模型、评估性能、提前停止等）
+        # 回调函数就是训练过程中的“自动监视器”，在关键节点自动执行某些任务（保存模型、评估性能、提前停止等）
     callback_list = CallbackList([callback_save_best_model])       #把多个功能整合到一起，只需把这个 callback_list 传给 .learn() 即可
     
-    #策略网络参数 policy_kwargs     #这个配置会传入例如 PPO 或 SAC 的构造函数中，来控制神经网络结构和特征提取器。
+        #策略网络参数 policy_kwargs     #这个配置会传入例如 PPO 或 SAC 的构造函数中，来控制神经网络结构和特征提取器。
     policy_kwargs = dict( 
         features_extractor_class=LaserGoalFeatureExtractor,    #自定义的特征提取器类，例如用于处理激光雷达+目标位置等组合输入
         features_extractor_kwargs=dict(features_dim=256),      #提取器的参数，这里指定输出特征维度为 256
         net_arch=dict(pi=[256,128,64], qf=[256,128,64])        #策略网络(pi 用于输出动作的隐藏层维度)和价值网络(qf 用于估计Q值的隐藏层维度)   3 层全连接隐藏层，每层的神经元个数依次为：256 128 64
     )
 
-    # 初始化模型
+
+        # 初始化模型
     model = SAC(        #虽然显示的是多层感知机策略（MLP Policy），使用 Soft Actor-Critic 算法，是一种基于值函数的离策略方法，具有高样本效率和稳定性，适合连续动作空间任务，如机器人控制、无人驾驶等。
         policy="MlpPolicy",      #实际上用的是你自定义的 LaserGoalFeatureExtractor，虽然外层写着 MlpPolicy，但本质会加载你指定的网络结构
         env=env,
@@ -330,19 +331,19 @@ if __name__ == "__main__":
     )
 
 
-    # model = SAC.load("sequence_moving_models/akm_best_model", env=env)
-    # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)     #  表示训练总步数为 100 万步；  callback_list 回调函数列表   会在训练时在控制台显示一个 tqdm 的进度条；
+        # model = SAC.load("sequence_moving_models/akm_best_model", env=env)
+        # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)     #  表示训练总步数为 100 万步；  callback_list 回调函数列表   会在训练时在控制台显示一个 tqdm 的进度条；
     model = SAC.load("sequence_moving_models/new_best_model", env=env)                    #  从路径 sequence_moving_models/new_best_model 加载一个训练好的模型；
-    # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)
+        # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)
     # 评估
     mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=50)   #这行是用 SB3 自带的评估工具 evaluate_policy(...) 进行评估，n_eval_episodes=50：在 50 个独立 episode 上测试模型表现
     print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
-    #  整体流程如下：
-    #  循环直到达到 total_timesteps:
-    # - 执行动作
-    # - 与环境交互获取反馈（obs, reward, done）
-    # - 存储经验
-    # - 达到一定间隔后，从经验中采样，进行策略网络与Q网络更新
-    # - 每隔 eval_freq 步，进行一次回调（评估、保存等）
-    # - 输出 tensorboard 日志和控制台进度
+        #  整体流程如下：
+        #  循环直到达到 total_timesteps:
+        # - 执行动作
+        # - 与环境交互获取反馈（obs, reward, done）
+        # - 存储经验
+        # - 达到一定间隔后，从经验中采样，进行策略网络与Q网络更新
+        # - 每隔 eval_freq 步，进行一次回调（评估、保存等）
+        # - 输出 tensorboard 日志和控制台进度
