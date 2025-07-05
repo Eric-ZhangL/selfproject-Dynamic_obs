@@ -11,46 +11,46 @@ world:
 robot:
   - kinematics: {name: 'acker'}
     shape: {name: 'rectangle', length: 1, width: 0.62, wheelbase: 0.68}
-    state: [1, 1, 0, 0]
+    state: [1, 1, 0, 0]    # 位置、朝向、速度。
     goal: [10, 1, 0, 0]
-    vel_min: [-2, -0.523]
+    vel_min: [-2, -0.523]   #速度和角速度的上下限。
     vel_max: [2, 0.523]
     acce: [5, 3.1416]
-    goal_threshold: 0.5
-    behavior: {name: 'dash'}
+    goal_threshold: 0.5   #距离目标小于这个值时，认为已到达目标。
+    behavior: {name: 'dash'}   #行为策略，这里是 'dash'（快速前往目标）。
     plot:
-      show_trail: False
-      show_goal: True
-      show_trajectory: False
+      show_trail: False   #是否显示轨迹；
+      show_goal: True    #是否显示目标点；
+      show_trajectory: False   #是否显示规划轨迹。
 
 
     sensors:
-      - type: 'lidar2d'
-        range_min: 0
+      - type: 'lidar2d'   #传感器类型，这里是二维激光雷达
+        range_min: 0      #最小/最大探测距离。
         range_max: 8
-        angle_range: 6.2483
-        number: 180
-        noise: False
-        offset: [0.3, 0, 0]
+        angle_range: 6.2483  #探测角度范围（约为 360°）。
+        number: 180      #激光束数量（180线）。
+        noise: False      #是否添加传感器噪声。
+        offset: [0.3, 0, 0]    #传感器在机器人上的安装偏移位置。
 
 
 
 obstacle:
-  - number: 4
-    distribution: {name: 'manual'}
+  - number: 4      #  手动布置。  静态围墙（4个）
+    distribution: {name: 'manual'}    
     shape:
       - {name: 'rectangle', length: 14.5, width: 0.5}
       - {name: 'rectangle', length: 14.5, width: 0.5}
       - {name: 'rectangle', length: 14.5, width: 0.5}
       - {name: 'rectangle', length: 14.5, width: 0.5}
 
-    state:
+    state:        #：静态大型障碍物（1个）
       - [7, 14.25, 0]
       - [7, -0.25, 0]
       - [-0.25, 7, 1.5708]
       - [14.25, 7, 1.5708]
 
-  - number: 1
+  - number: 1     #：静态大型障碍物（1个）
     distribution: {name: 'manual'}
     shape:
       - {name: 'rectangle', length: 8, width: 2}
@@ -58,7 +58,7 @@ obstacle:
       - [7, 7, 1.57]
 
 
-  - number: 10
+  - number: 10    #动态障碍物（10个小车）
     distribution: {name: 'random', range_low: [1, 2, -3.14], range_high: [13, 11, 3.14], non_overlapping: True}
     kinematics: {name: 'diff'}
     shape:
@@ -72,14 +72,14 @@ obstacle:
       - {name: 'circle', radius: 0.6}  # radius
       - { name: 'circle', radius: 0.7 }  # radius
       - { name: 'circle', radius: 0.7 }  # radius
-    behavior:
+    behavior:    #行为模型使用 rvo（速度障碍避碰策略），具备随机游走能力（wander: True），最大速度0.5。
       - {name: 'rvo', range_low: [2, 2.5, -3.14], range_high: [13, 11, 3.14], wander: True, vxmax: 0.5, vymax: 0.5}
 
-    vel_min: [-1.0, -3.14]
+    vel_min: [-1.0, -3.14]   #速度与角速度的边界。
     vel_max: [1.0, 3.14]
     arrive_mode: position
-    goal_threshold: 0.3
+    goal_threshold: 0.3    #到达目标点的判断阈值。
     color: 'grey'
-    plot:
+    plot:    #不显示目标点，但显示运动方向箭头。
       show_goal: False
       show_arrow: True
