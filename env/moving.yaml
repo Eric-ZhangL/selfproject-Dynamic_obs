@@ -17,7 +17,7 @@ robot:
     vel_max: [2, 0.523]
     acce: [5, 3.1416]
     goal_threshold: 0.5   #距离目标小于这个值时，认为已到达目标。
-    behavior: {name: 'dash'}   #行为策略，这里是 'dash'（快速前往目标）。
+    # behavior: {name: 'dash'}   #行为策略，这里是 'dash'（快速前往目标）。
     plot:
       show_trail: False   #是否显示轨迹；
       show_goal: True    #是否显示目标点；
@@ -36,50 +36,50 @@ robot:
 
 
 obstacle:
-  - number: 4      #  手动布置。  静态围墙（4个）
+  - number: 1      #  手动布置。  静态围墙（4个）
     distribution: {name: 'manual'}    
     shape:
       - {name: 'rectangle', length: 14.5, width: 0.5}
-      - {name: 'rectangle', length: 14.5, width: 0.5}
-      - {name: 'rectangle', length: 14.5, width: 0.5}
-      - {name: 'rectangle', length: 14.5, width: 0.5}
+      # - {name: 'rectangle', length: 14.5, width: 0.5}
+      # - {name: 'rectangle', length: 14.5, width: 0.5}
+      # - {name: 'rectangle', length: 14.5, width: 0.5}
 
     state:        #：静态大型障碍物（1个）
       - [7, 14.25, 0]
-      - [7, -0.25, 0]
-      - [-0.25, 7, 1.5708]
-      - [14.25, 7, 1.5708]
+      # - [7, -0.25, 0]
+      # - [-0.25, 7, 1.5708]
+      # - [14.25, 7, 1.5708]
 
-  - number: 1     #：静态大型障碍物（1个）
-    distribution: {name: 'manual'}
-    shape:
-      - {name: 'rectangle', length: 8, width: 2}
-    state:
-      - [7, 7, 1.57]
+  # - number: 1     #：静态大型障碍物（1个）
+  #   distribution: {name: 'manual'}
+  #   shape:
+  #     - {name: 'rectangle', length: 8, width: 2}
+  #   state:
+  #     - [7, 7, 1.57]
 
 
-  - number: 10    #动态障碍物（10个小车）
-    distribution: {name: 'random', range_low: [1, 2, -3.14], range_high: [13, 11, 3.14], non_overlapping: True}
-    kinematics: {name: 'diff'}
-    shape:
-      - {name: 'circle', radius: 0.3}  # radius
-      - {name: 'circle', radius: 0.3}  # radius
-      - {name: 'circle', radius: 0.4}  # radius
-      - {name: 'circle', radius: 0.4}  # radius
-      - {name: 'circle', radius: 0.5}  # radius
-      - {name: 'circle', radius: 0.5}  # radius
-      - {name: 'circle', radius: 0.6}  # radius
-      - {name: 'circle', radius: 0.6}  # radius
-      - { name: 'circle', radius: 0.7 }  # radius
-      - { name: 'circle', radius: 0.7 }  # radius
-    behavior:    #行为模型使用 rvo（速度障碍避碰策略），具备随机游走能力（wander: True），最大速度0.5。
-      - {name: 'rvo', range_low: [2, 2.5, -3.14], range_high: [13, 11, 3.14], wander: True, vxmax: 0.5, vymax: 0.5}
+  # - number: 10    #动态障碍物（10个小车）
+  #   distribution: {name: 'random', range_low: [1, 2, -3.14], range_high: [13, 11, 3.14], non_overlapping: True}
+  #   kinematics: {name: 'diff'}
+  #   shape:
+  #     - {name: 'circle', radius: 0.3}  # radius
+  #     - {name: 'circle', radius: 0.3}  # radius
+  #     - {name: 'circle', radius: 0.4}  # radius
+  #     - {name: 'circle', radius: 0.4}  # radius
+  #     - {name: 'circle', radius: 0.5}  # radius
+  #     - {name: 'circle', radius: 0.5}  # radius
+  #     - {name: 'circle', radius: 0.6}  # radius
+  #     - {name: 'circle', radius: 0.6}  # radius
+  #     - { name: 'circle', radius: 0.7 }  # radius
+  #     - { name: 'circle', radius: 0.7 }  # radius
+  #   behavior:    #行为模型使用 rvo（速度障碍避碰策略），具备随机游走能力（wander: True），最大速度0.5。
+  #     - {name: 'rvo', range_low: [2, 2.5, -3.14], range_high: [13, 11, 3.14], wander: True, vxmax: 0.5, vymax: 0.5}
 
-    vel_min: [-1.0, -3.14]   #速度与角速度的边界。
-    vel_max: [1.0, 3.14]
-    arrive_mode: position
-    goal_threshold: 0.3    #到达目标点的判断阈值。
-    color: 'grey'
-    plot:    #不显示目标点，但显示运动方向箭头。
-      show_goal: False
-      show_arrow: True
+  #   vel_min: [-1.0, -3.14]   #速度与角速度的边界。
+  #   vel_max: [1.0, 3.14]
+  #   arrive_mode: position
+  #   goal_threshold: 0.3    #到达目标点的判断阈值。
+  #   color: 'grey'
+  #   plot:    #不显示目标点，但显示运动方向箭头。
+  #     show_goal: False
+  #     show_arrow: True

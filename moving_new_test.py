@@ -10,9 +10,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from stable_baselines3 import SAC,PPO
+from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 from stable_baselines3.common.callbacks import CallbackList
 from stable_baselines3.common.callbacks import EvalCallback
+from stable_baselines3.common.buffers import ReplayBufferSamples
 import os
 from collections import deque
 import random
@@ -192,6 +194,7 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
         return self._get_obs_sequence(), reward, done, {}   # 返回 step() 的结果（符合 Gym 接口标准）：
 
     def reset(self):
+        print("-------------------reseting--------------------------")
         #  每当一个 episode 结束（例如碰撞、到达目标、超时），算法会自动调用 env.reset() 来开始下一轮。这段代码完成了以下初始化工作：   
         self.env.reset()  #重置底层仿真环境（irsim），清空状态、时间步等。
          #为障碍物 随机重新生成位置，避免每次都是同一个环境布局；
@@ -260,9 +263,19 @@ class LaserGoalFeatureExtractor(BaseFeaturesExtractor):       #继承自 SB3 的
         
         B = observations.size(0)     #取 batch 大小 B。  
 
+        if observations.dim() == 4:   # 评估和训练的时候不输入纬度不一样
+                observations = observations.squeeze(1)
+
         # 将观测拆分为激光雷达序列和目标状态序列。
         laser_seq = observations[:, :, :self.laser_dim]  # [B, 5, 180]
         goal_seq = observations[:, :, self.laser_dim:]  # [B, 5, 5]
+
+        # print("laser_seq 的维度:", laser_seq.shape)
+        # print("goal_seq 的维度:", goal_seq.shape)
+
+
+    # 现在的 observations 形状应该是 [Batch, 5, 185] 或 [Batch, 5, 180] (取决于您的 laser_dim)
+    
 
         # 激光数据先经过两个 Conv1d 卷积层提取空间特征，再通过 LSTM 捕捉时间序列依赖，得到激光序列特征。
         x = F.relu(self.conv1(laser_seq))
@@ -282,7 +295,9 @@ class LaserGoalFeatureExtractor(BaseFeaturesExtractor):       #继承自 SB3 的
         # last = attn_output[:, -1, :]  对序列的每个时间步特征取均值，得到一组融合特征，再经过线性变换+ReLU激活，输出该时刻的特征向量（用于后续策略或价值网络）。
         pool = attn_output.mean(dim=1)
         feature = F.relu(self.fc(pool))   #fc 在初始化的时候已经定义输出维度了  实际上是features_dim  256
-    
+        # print("特征提取器输出维度:", features.shape)
+
+        
         return feature       #  非动作  应该是观测值 256   
 
     # def forward_actor(self, features: torch.Tensor) -> torch.Tensor:   #        net_arch=dict(pi=[256,128,64], qf=[256,128,64])   
@@ -291,29 +306,134 @@ class LaserGoalFeatureExtractor(BaseFeaturesExtractor):       #继承自 SB3 的
     # def forward_critic(self, features: torch.Tensor) -> torch.Tensor:
     #     return self.value_net(features)
 
+class CustomEvalCallback(EvalCallback):
+    """
+    手动处理最佳模型保存的 EvalCallback，解决了线程锁无法序列化的问题。
+    """
+    
+    def _on_step(self) -> bool:
+        # 1. 检查是否达到评估频率
+        if self.eval_freq > 0 and self.n_calls % self.eval_freq == 0:
+            
+            # --- 执行评估 ---
+            # 修正点 1: 必须设置 return_episode_rewards=True 才能获取详细结果
+            # evaluate_policy 返回: (所有回合奖励列表, 所有回合长度列表)
+            
+            # 注意: evaluate_policy 在 return_episode_rewards=True 时返回 (all_rewards, all_lengths)
+            # 所以我们需要使用 evaluate_policy 的返回值来计算 mean/std
+            print("-------------------evaluating--------------------------")
+            all_rewards, all_lengths = self.evaluate_policy(
+                self.model,
+                self.eval_env,
+                n_eval_episodes =5,  # 设定了模型在评估环境中必须跑完多少个完整的 Episode
+                deterministic=self.deterministic,
+                render=self.render,
+                return_episode_rewards=True, # <--- 修正点: 设为 True
+            )
+            mean_reward = np.mean(all_rewards)   # <--- 必须是单个数值
+            std_reward = np.std(all_rewards)     # <--- 必须是单个数值
+            # 记录评估日志
+            self.logger.record("eval/mean_reward", mean_reward)
+            self.logger.record("eval/std_reward", std_reward) 
+            # self.logger.record("eval/n_episodes", self.n_eval_episodes_done)
+            # self.logger.record("eval/n_timesteps", self.model.num_timesteps)
+            print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
+
+            # --- 判断是否为新最佳模型并执行保存 ---
+            if mean_reward > self.best_mean_reward:
+                # print(f"New best mean reward! ({mean_reward:.2f} > {self.best_mean_reward:.2f})")
+                self.best_mean_reward = mean_reward
+                
+                policy_save_path = os.path.join(self.best_model_save_path, "best_policy_params.pt")
+                torch.save(self.model.policy.state_dict(), policy_save_path)
+                # 可选：记录最优模型的时间步和奖励
+                with open(os.path.join(self.best_model_save_path, "best_model_info.txt"), "w") as f:
+                    f.write(f"best_mean_reward: {mean_reward:.2f}\n")
+                    f.write(f"timestep: {self.model.num_timesteps}\n")
+                print(f"New best policy saved! Mean reward: {mean_reward:.2f}")
+                
+            self.logger.dump(self.model.num_timesteps)
+
+        return True
+
+    # 封装 evaluate_policy，确保使用 model.evaluate_policy
+    def evaluate_policy(self, *args, **kwargs):
+        """Wrapper for evaluate_policy to be compatible with SB3 logging."""
+        return evaluate_policy(*args, **kwargs)
+
+
+# class CustomReplayBuffer(ReplayBuffer):
+#     def __init__(self, buffer_size, observation_space, action_space, device="cpu", n_envs=1, **kwargs):
+#         super().__init__(buffer_size, observation_space, action_space, device=device, n_envs=n_envs,** kwargs)
+#         # 初始化特征存储（适配多环境，形状与原始观测对齐）
+#         self.features = np.zeros((self.buffer_size, n_envs, 256), dtype=np.float32)  # 256为特征维度
+
+#     def add(self, obs, next_obs, action, reward, done, infos, feature=None):
+#         super().add(obs, next_obs, action, reward, done, infos)
+#         if feature is not None:
+#             # 确保特征形状为 (n_envs, 256)
+#             feature_np = np.asarray(feature, dtype=np.float32)
+#             self.features[self.pos - 1] = feature_np  # 存储到当前位置
+
+#     def sample(self, batch_size, env=None):
+#         """手动实现普通ReplayBuffer的采样逻辑（无优先级）"""
+#         # 1. 生成采样索引（核心修正：替换 _sample_indices 为手动逻辑）
+#         if self.full:
+#             # 缓冲区满了，从整个缓冲区采样
+#             idxs = np.random.randint(0, self.buffer_size, size=batch_size)
+#         else:
+#             # 缓冲区未满，从已存储的位置中采样
+#             idxs = np.random.randint(0, self.pos, size=batch_size)
+
+#         # 2. 处理特征（替换原始obs作为网络输入）
+#         obs = torch.as_tensor(self.features[idxs], device=self.device).float()
+#         # 单环境下删除多余维度（确保2维：[batch_size, 256]）
+#         if self.n_envs == 1:
+#             obs = obs.squeeze(1)
+
+#         # 3. 处理其他数据（动作、下一观测、奖励、终止信号）
+#         actions = torch.as_tensor(self.actions[idxs], device=self.device).float()
+#         next_obs = torch.as_tensor(self.next_observations[idxs], device=self.device).float()
+#         dones = torch.as_tensor(self.dones[idxs], device=self.device).float()
+#         rewards = torch.as_tensor(self.rewards[idxs], device=self.device).float()
+
+#         # 单环境下统一维度（删除n_envs维度）
+#         if self.n_envs == 1:
+#             actions = actions.squeeze(1)
+#             next_obs = next_obs.squeeze(1)
+#             dones = dones.squeeze(1)
+#             rewards = rewards.squeeze(1)
+
+#         # 4. 返回标准样本格式
+#         return ReplayBufferSamples(
+#             obs,
+#             actions,
+#             next_obs,
+#             dones,
+#             rewards
+#         )              
 
 if __name__ == "__main__":
-        # 创建环境
+    #１.创建环境
     env = IRSIMEnv('env/moving.yaml', display=True)
-    # env = IRSIMEnv('/home/zhangl/DRL_project/Dynamic_obs/self_env/ir_sim_test/robot_world_mbv3.yaml', display=True)
-        # 模型保存目录
+
+    # 模型保存目录
     log_dir = "./sequence_moving_models"     #创建一个目录 ./sequence_moving_models 用于保存模型、日志和中间结果。
     os.makedirs(log_dir, exist_ok=True)      #exist_ok=True 表示：如果目录已存在就不会报错。   
        
-        #评估回调函数（EvalCallback）   训练过程中，定期（每 eval_freq 步）在环境上评估模型表现； 如果发现新的更优模型（例如 reward 更高），就会保存到 best_model_save_path 指定的目录；
-    callback_save_best_model = EvalCallback(
+    #２.回调函数配置（EvalCallback）   训练过程中，定期（每 eval_freq 步）在环境上评估模型表现； 如果发现新的更优模型（例如 reward 更高），就会保存到 best_model_save_path 指定的目录；
+    callback_save_best_model = CustomEvalCallback(
         env,                          # 评估环境
         best_model_save_path=log_dir,  # 保存“当前最优模型”的路径
         log_path=log_dir,              # 评估指标日志保存路径
-        eval_freq=4096,                # 每隔多少步评估一次
+        eval_freq=50,                # 每隔多少步评估一次
         deterministic=True,           # 使用确定性策略（适用于测试）
         render=False                  # 是否在评估时可视化渲染
     )   
-    
-        # 回调函数就是训练过程中的“自动监视器”，在关键节点自动执行某些任务（保存模型、评估性能、提前停止等）
     callback_list = CallbackList([callback_save_best_model])       #把多个功能整合到一起，只需把这个 callback_list 传给 .learn() 即可
     
-        #策略网络参数 policy_kwargs     #这个配置会传入例如 PPO 或 SAC 的构造函数中，来控制神经网络结构和特征提取器。
+    #３.模型策略配置
+    #策略网络参数 policy_kwargs     #这个配置会传入例如 PPO 或 SAC 的构造函数中，来控制神经网络结构和特征提取器。
     policy_kwargs = dict( 
         features_extractor_class=LaserGoalFeatureExtractor,    #自定义的特征提取器类，例如用于处理激光雷达+目标位置等组合输入
         features_extractor_kwargs=dict(features_dim=256),      #提取器的参数，这里指定输出特征维度为 256
@@ -329,27 +449,157 @@ if __name__ == "__main__":
     model = SAC(        #虽然显示的是多层感知机策略（MLP Policy），使用 Soft Actor-Critic 算法，是一种基于值函数的离策略方法，具有高样本效率和稳定性，适合连续动作空间任务，如机器人控制、无人驾驶等。
         policy="MlpPolicy",      #定义 Actor（策略网络）和 Critic（价值网络） 的基本框架是由全连接层（Dense Layer）组成的多层感知机（MLP）   而非 CnnPolicy（卷积神经网络策略）
         env=env,
+        replay_buffer_class=ReplayBuffer, 
         policy_kwargs=policy_kwargs,    #用于传入自定义特征提取器和策略结构的配置参数，
         verbose=1,                     #控制控制台日志的输出等级； 0 表示静默，1 表示每步训练都会有摘要输出，2 是更详细的调试信息。                                                           
         learning_rate=1e-4,              # 学习率，控制策略和价值网络的梯度更新步长； 对 SAC 来说，通常设置在 3e-4 到 1e-4 都是合理的，你设置得比较保守
         tensorboard_log="./sac_laser_goal_tensorboard/"   #表示把训练过程中的日志输出到该目录；
     )
 
-
-    model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/akm_best_model", env=env)
-    # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)
-    # model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/best_policy_params", env=env)
+   
+   #4.训练环节
+    model.callback = callback_list
+    model.callback.init_callback(model)
     
-    # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)
-    # 评估
-    mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=50)   #这行是用 SB3 自带的评估工具 evaluate_policy(...) 进行评估，n_eval_episodes=50：在 50 个独立 episode 上测试模型表现
-    print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
 
-        #  整体流程如下：      model.learn中有详细训练流程、stable_baselines3 中的库   注意stable_baselines3中的buffer
-        #  循环直到达到 total_timesteps:
-        # - 执行动作
-        # - 与环境交互获取反馈（obs, reward, done）
-        # - 存储经验 
-        # - 达到一定间隔后，从经验中采样，进行策略网络与Q网络更新
-        # - 每隔 eval_freq 步，进行一次回调（评估、保存等）
-        # - 输出 tensorboard 日志和控制台进度
+
+# 获取 SAC 内部参数
+    total_timesteps = 1000000
+    learning_starts = model.learning_starts       # 多少步后开始学习 (默认 100)
+    train_freq = model.train_freq[0] if isinstance(model.train_freq, tuple) else model.train_freq # 每隔多少步训练一次 (默认 1)
+    gradient_steps = model.gradient_steps         # 每次训练循环中进行多少次梯度更新 (默认 1)
+    
+    # 初始化状态
+    current_obs = env.reset()
+    current_timestep = 0
+    num_train_steps = 0
+    
+    
+    # 回调函数初始化
+
+    # 初始化 TensorBoard Logger
+    model._setup_learn(total_timesteps, None)
+    
+    start_time = time.time()
+        
+    episode_reward_sum = 0
+    episode_step_count = 0
+    while current_timestep < total_timesteps:
+        
+        # 1. 回调函数检查 (在每个 timestep 开始时检查，如 SB3 默认行为)
+        if not model.callback.on_step():
+            break
+
+        # 获取动作 (使用 model.predict() 获取动作)
+        with torch.no_grad():
+
+            action, _ = model.predict(current_obs, deterministic=False) 
+            print("-------------------get action--------------------------")
+        # 与环境交互
+
+        new_obs, reward, done, info = env.step(action)
+        print(f"DEBUG: Done Value: {done}, Type: {type(done)}")
+        
+
+
+        # # 查看维度信息
+        # print("new_obs 的形状:", new_obs.shape)
+        # # 查看数据类型
+        # print("new_obs 的数据类型:", new_obs.dtype)
+        # # 查看维度数量
+        # print("new_obs 的维度数量:", new_obs.ndim)    
+
+
+        # 手动更新回合统计
+        episode_reward_sum += reward
+        episode_step_count += 1
+
+        # 确保 info 是一个列表 (适用于非向量化的单环境)
+        infos = [info] 
+        
+        # SB3 的 SAC 默认使用 model._update_buffer() 存储经验
+        model.replay_buffer.add(
+            obs=current_obs,
+            next_obs=new_obs,
+            action=action,
+            reward=np.array([reward]),  # 奖励必须是 NumPy 数组
+            done=np.array([done]),      # done 标志必须是 NumPy 数组
+            infos=infos
+        )
+
+        if done:
+            print("-----------------doneinginging----------------------------")
+            # if "episode" in info:
+            #     final_reward = info["episode"]["r"]
+            #     final_length = info["episode"]["l"]
+                
+            #     reward_val = final_reward[0] if isinstance(final_reward, (np.ndarray, list)) else final_reward
+            #     length_val = final_length[0] if isinstance(final_length, (np.ndarray, list)) else final_length
+                
+            final_reward = episode_reward_sum
+            final_length = episode_step_count
+
+            model.logger.record("rollout/episode_reward", final_reward)
+            model.logger.record("rollout/episode_length", final_length)
+    
+                
+            
+            print(f"\n--- EPISODE FINISHED (T={current_timestep}) ---")
+            print(f"Rollout Reward: {final_reward:.2f}, Length: {final_length}") # <--- 修正点
+                # print("---------------------------------------------")
+            # else:
+            #     # 如果 Monitor 包装器信息不明确，使用手动累积的值
+            #     print(f"\n--- EPISODE FINISHED (T={current_timestep}) ---")
+            #     print(f"Accumulated Reward: {episode_reward_sum:.2f}, Length: {episode_step_count}")
+            #     print("---------------------------------------------")
+
+            
+            
+            current_obs = env.reset()
+            
+            episode_reward_sum = 0
+            episode_step_count = 0
+            # 必须告诉 Logger 回合已结束，以便计算平均奖励等统计信息
+            model._on_step()        
+
+
+        
+        current_obs = new_obs
+        current_timestep += 1
+        
+        # 3. 训练模型 (Update Model)
+        # -----------------------------------------------------------
+        
+        # 只有在达到 learning_starts 步后，才开始训练
+        if current_timestep >= learning_starts:
+            # 每隔 train_freq 步进行一次训练
+            if current_timestep % train_freq == 0:
+                # 进行 gradient_steps 次梯度更新
+                model.train(gradient_steps=gradient_steps, batch_size=model.batch_size)
+                print("-------------------training--------------------------")
+                num_train_steps += gradient_steps
+
+        # 4. 周期性处理 (Logging & Reset)
+        # -----------------------------------------------------------
+        
+        # 如果回合结束，重置环境
+
+        
+        # TensorBoard 记录
+        if model.num_timesteps % 1000 == 0: # 简化版 logging 频率
+            model._dump_logs() # 传递 current_timestep 用于日志记录
+            
+        # 更新进度条 (如果需要)
+        # 这是一个简化，SB3 内部逻辑更复杂
+        if current_timestep % 1000 == 0:
+            elapsed_time = time.time() - start_time
+            print(f"Timestep: {current_timestep}/{total_timesteps} | Elapsed: {elapsed_time:.2f}s | Train Steps: {num_train_steps}")
+            
+    # 5. 训练结束后的清理工作
+    model.env.close()
+    
+    # --- 手动训练循环结束 ---
+
+    # 评估 (与原代码保持一致)
+    # mean_reward, std_reward = evaluate_policy(model, env, n_eval_episodes=50)
+    # print(f"Mean reward: {mean_reward:.2f} +/- {std_reward:.2f}")
