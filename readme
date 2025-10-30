@@ -1,6 +1,6 @@
 pip install gym
 
-pip install ir-sim==2.4.4   
+pip install ir-sim==2.7.4   
 
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118   #https://pytorch.org/get-started/locally/  根据配置修改
 
