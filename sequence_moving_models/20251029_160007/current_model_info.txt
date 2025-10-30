@@ -1,0 +1,3 @@
+current_mean_reward: -25.57
+episode_num: 6000
+timestep: 998102

@@ -334,9 +334,9 @@ if __name__ == "__main__":
         learning_rate=1e-4,              # 学习率，控制策略和价值网络的梯度更新步长； 对 SAC 来说，通常设置在 3e-4 到 1e-4 都是合理的，你设置得比较保守
         tensorboard_log="./sac_laser_goal_tensorboard/"   #表示把训练过程中的日志输出到该目录；
     )
-
-
-    model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/akm_best_model", env=env)
+    
+    model.policy.load_state_dict(torch.load("./sequence_moving_models/20251029_160007/best_policy_params.pt"))
+    # model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/akm_best_model", env=env)
     # model.learn(total_timesteps=1000000, callback=callback_list, progress_bar=True)
     # model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/best_policy_params", env=env)
     
