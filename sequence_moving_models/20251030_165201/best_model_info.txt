@@ -1,0 +1,3 @@
+best_mean_reward: 63.08
+episode_num: 50
+timestep: 9489

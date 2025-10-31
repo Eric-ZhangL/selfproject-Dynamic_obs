@@ -182,6 +182,9 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
 
         #最终总奖励计算    → 向目标靠近的奖励 → 静止的惩罚 → 接近障碍的惩罚 → 达标/失败终止的奖励
         reward = reward_distance + reward_movement + reward_obstacle + reward_done
+        # print(reward)
+
+
 
         self.prev_distance = current_distance    #更新上一时刻的距离（用于下次计算距离变化）：
         self.prev_min_distance = min(np.array(self.env.get_lidar_scan()["ranges"], dtype=np.float32))    #记录当前时刻最小的激光距离（用于判断是否越来越靠近障碍物）：
