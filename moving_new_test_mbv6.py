@@ -21,7 +21,7 @@ import random
 from typing import List, Dict, Tuple, Any
 from datetime import datetime
 
-
+#  修改了训练培训  将按步数训练改为了按回合数训练 通时改变了一次性到达奖励和行驶过程中朝向目标的奖励
 # ============================ 数值仿真环境定义（注意用ir-sim最新版本） ============================
 class IRSIMEnv(gym.Env):     #继承了 gym.Env
     def __init__(self, config_path='./easy.yaml', display=True):
@@ -52,7 +52,7 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
         self.obstacles = np.array([])       # 障碍物列表
         self.obstacle_radius = 1.5          # 障碍物碰撞判定半径
         self.goal_radius = 1.0              # 到达目标的判定半径
-
+        self.done_per_robot: List[bool] = [False] * self.robot_number    # 到达标志
 
         # 观测序列长度
         self.history_len = 5            # 使用过去5帧观测作为输入
@@ -85,7 +85,12 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
 
          #为障碍物 随机重新生成位置，避免每次都是同一个环境布局；  尤其注意后面的编号  编号不对会导致导入的环境有错位
         self.env.random_obstacle_position(range_low= [2, 2.5, -3.14], range_high= [13, 11.5, 3.14], ids= [8,9,10,11,12], non_overlapping = True)  
+
+
+
+
         #清空与初始化状态变量：
+        self.done_per_robot: List[bool] = [False] * self.robot_number    # 到达标志
 
         self.prev_min_distance = [999 for _ in range(self.robot_number)]
         self.prev_distance = [None for _ in range(self.robot_number)]
@@ -166,18 +171,19 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
         # 初始化返回列表/数组
         obs_per_robot: List[np.ndarray] = []
         rewards_per_robot: List[float] = []
-        done_per_robot: List[bool] = [False] * self.robot_number    # 到达标志
+
         info_per_robot: Dict[int, bool] = {}  # 重置标志 (True: 需要重置 / False: 继续)
 
 
         # --- 4. 奖励计算与状态检查 ---
         for id in range(self.robot_number):
-            if self.robot_reached_final[id]:
+            if self.robot_reached_final[id] or self.done_per_robot[id]:
+            # if self.robot_reached_final[id]:
                 # --- 4.1 机器人已到达并停止 (只计算 0 奖励，跳过过程奖励) ---
                 single_total_reward = 0.0
                 # reward_done = 0.0 # 保持为 0，不再重复给予到达奖励
                 # 保持 done_per_robot[id] = True (或根据您的RL框架需求设置为False)
-                done_per_robot[id] = True # 保持终结状态
+                self.done_per_robot[id] = True # 保持终结状态
                 must_reset = False # 不要求重置
     
 
@@ -191,13 +197,14 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
                     self.prev_distance[id] = current_distance
                 #接近障碍物惩罚
                 reward_obstacle = 0
-                if min(np.array(self.env.get_lidar_scan(id)["ranges"], dtype=np.float32)) < 0.7:
-                    reward_obstacle = -0.5
-                    if min(np.array(self.env.get_lidar_scan(id)["ranges"], dtype=np.float32))-self.prev_min_distance[id]<0:
-                        reward_obstacle += -0.5
+                # if min(np.array(self.env.get_lidar_scan(id)["ranges"], dtype=np.float32)) < 0.7:
+                #     reward_obstacle = -0.5
+                #     if min(np.array(self.env.get_lidar_scan(id)["ranges"], dtype=np.float32))-self.prev_min_distance[id]<0:
+                #         reward_obstacle += -0.5
                 #靠近目标奖励
                 delta_d = self.prev_distance[id] - current_distance
-                reward_distance = delta_d * 0.5   
+                reward_distance = delta_d * 0.8
+                # reward_distance = delta_d * 0.5
                 #静止惩罚
                 reward_movement = -0.2 if abs(self.velocity[id]) < 0.3 else 0.0
                 # 判断当前 episode 是否因为到达目标、碰撞或超时而结束       
@@ -214,18 +221,19 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
                 #完成目标 / 碰撞 / 超时处理
                 if collided:
                     reward_done = -15.0
-                    done_per_robot[id] = False
+                    self.done_per_robot[id] = False
                     must_reset = True
                     print(f"episode done:  机器人{id} collision")                
                 elif reached_goal:
-                    reward_done =15.0
+                    # reward_done =15.0
+                    reward_done =20.0
                     self.robot_reached_final[id] = True # 标记为已到达！
                     print(f"episode info: 机器人{id} reached goal")
-                    done_per_robot[id] = True     
+                    self.done_per_robot[id] = True     
                     must_reset = False
                 elif goal_timeout:
                     reward_done = -15
-                    done_per_robot[id] = False
+                    self.done_per_robot[id] = False
                     must_reset = True
                     print("episode done: timeout")
          
@@ -243,7 +251,7 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
         # --- 5. 格式化返回数据 ---
         self.obs_total = np.stack(obs_per_robot, axis=0)  # (num_robots, history_len, obs_dim)
         reward_total = np.array(rewards_per_robot, dtype=np.float32)
-        done_total = np.array(done_per_robot, dtype=bool)
+        done_total = np.array(self.done_per_robot, dtype=bool)
 
         self.env.render()    #可视化当前环境状态：会让环境显示画面，常用于调试/训练监控。
 
@@ -251,9 +259,9 @@ class IRSIMEnv(gym.Env):     #继承了 gym.Env
 
     def _get_init_goal_positions(self,id):
         
-        min_start_goal_dist = 3.0   # 自身初始位置到目标最小距离
-        min_start_start_dist = 3.5  # 各车初始位置最小间距
-        min_goal_goal_dist = 3.5    # 各车目标点最小间距
+        min_start_goal_dist = 2.0   # 自身初始位置到目标最小距离
+        min_start_start_dist = 2.5  # 各车初始位置最小间距
+        min_goal_goal_dist = 3    # 各车目标点最小间距
         while True:
             # --------- 随机生成初始位置 ----------
             x = np.random.uniform(2, 12)
@@ -548,188 +556,188 @@ if __name__ == "__main__":
         verbose=1,                     #控制控制台日志的输出等级； 0 表示静默，1 表示每步训练都会有摘要输出，2 是更详细的调试信息。                                                           
         learning_rate=2e-4,              # 学习率，控制策略和价值网络的梯度更新步长； 对 SAC 来说，通常设置在 3e-4 到 1e-4 都是合理的，你设置得比较保守
         tensorboard_log=MODEL_SAVE_PATH,  #表示把训练过程中的日志输出到该目录；
-        learning_starts=1000,  # 先收集1000步经验再开始训练（避免初始数据不足）
-        train_freq=(600, "step"),  # 每收集128步经验（n_steps=128）触发一次训练
-        gradient_steps=128,
+        learning_starts=100,  # 先收集1000步经验再开始训练（避免初始数据不足）        后面当做回合数使用
+        train_freq=(1, "step"),  # 每收集128步经验（n_steps=128）触发一次训练      后面当做回合数使用
+        gradient_steps=2,
           # 每次训练执行128轮梯度更新（与n_steps相等，保证数据利用率）
         batch_size=256  # 每次采样64条经验（SB3默认，平衡效率与稳定性）
     )
 
     # ============================  模型推理过程（训练时需要注释）  ============================
     
-    model.policy.load_state_dict(torch.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/20251029_160007/best_policy_params.pt"))
-    mean_reward, std_reward = evaluate_model(model, env, num_episodes=10, deterministic=True)    
+    # model.policy.load_state_dict(torch.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/20251030_211221/best_policy_params.pt"))
+    # mean_reward, std_reward = evaluate_model(model, env, num_episodes=10, deterministic=True)    
 
 
-    # # ============================  模型训练过程（推理时需要注释）  ============================
+    # ============================  模型训练过程（推理时需要注释）  ============================
 
 
-    # # 初始化状态
-    # current_obs_total = env.reset()   # #(num_robots, history_len, obs_dim)  
-    # current_timestep = 0
-    # total_timesteps=1000000  
-    # start_time = time.time()
+    # 初始化状态
+    current_obs_total = env.reset()   # #(num_robots, history_len, obs_dim)  
+    current_timestep = 0
+    total_timesteps=1000000  
+    start_time = time.time()
     
-    # model._setup_learn(total_timesteps, None)  # 初始化SB3内部状态     
-    # episode_reward_sum = 0
-    # episode_step_count = 0
+    model._setup_learn(total_timesteps, None)  # 初始化SB3内部状态     
+    episode_reward_sum = 0
+    episode_step_count = 0
 
-    # print("=" * 50)
-    # print(f"开始训练：总步数={total_timesteps}，收集步长n_steps=1000，梯度更新次数gradient_steps={8}")
-    # print("=" * 50)
+    print("=" * 50)
+    print(f"开始训练：总步数={total_timesteps}，收集步长n_steps=1000，梯度更新次数gradient_steps={8}")
+    print("=" * 50)
 
-    # while current_timestep < total_timesteps:
+    while current_timestep < total_timesteps:
     
-    #     # -------------------------- 提取特征+与环境交互 ------------------------------
-    #     obs_input = torch.from_numpy(current_obs_total).float().unsqueeze(0)  # [1, num_robots, history_len, obs_dim]
-    #     with torch.no_grad():   
-    #         action_total, _ = model.predict(obs_input, deterministic=False)    #  action_total 形状: (num_robots, 2)
+        # -------------------------- 提取特征+与环境交互 ------------------------------
+        obs_input = torch.from_numpy(current_obs_total).float().unsqueeze(0)  # [1, num_robots, history_len, obs_dim]
+        with torch.no_grad():   
+            action_total, _ = model.predict(obs_input, deterministic=False)    #  action_total 形状: (num_robots, 2)
 
-    #     obs_total, reward_total, done_total, info_total = env.step(action_total)
+        obs_total, reward_total, done_total, info_total = env.step(action_total)
 
-    #     episode_reward_sum += reward_total.sum()  # 累加所有机器人的奖励
-    #     episode_step_count += 1
-    #     current_timestep += 1
+        episode_reward_sum += reward_total.sum()  # 累加所有机器人的奖励
+        episode_step_count += 1
+        current_timestep += 1
 
-    #     # -------------------------- 循环遍历每个机器人，存储独立经验 --------------------------
-    #     for robot_id in range(env.robot_number):  # env.num_robots 是你环境中机器人的数量
+        # -------------------------- 循环遍历每个机器人，存储独立经验 --------------------------
+        for robot_id in range(env.robot_number):  # env.num_robots 是你环境中机器人的数量
 
-    #         single_current_obs = current_obs_total[robot_id]  # 单个机器人的当前观测：(history_len, obs_dim)
-    #         single_new_obs = obs_total[robot_id]          # 单个机器人的下一个观测：(history_len, obs_dim)
-    #         single_action = action_total[robot_id]      # 单个机器人的动作：(2,)（对应你之前的 acc 和 steer）
-    #         single_reward = reward_total[robot_id]      # 单个机器人的奖励：标量
-    #         single_done = done_total[robot_id]          # 单个机器人的终止标志：布尔值
-    #         # single_info = info_total[robot_id]          # 单个机器人的额外信息
+            single_current_obs = current_obs_total[robot_id]  # 单个机器人的当前观测：(history_len, obs_dim)
+            single_new_obs = obs_total[robot_id]          # 单个机器人的下一个观测：(history_len, obs_dim)
+            single_action = action_total[robot_id]      # 单个机器人的动作：(2,)（对应你之前的 acc 和 steer）
+            single_reward = reward_total[robot_id]      # 单个机器人的奖励：标量
+            single_done = done_total[robot_id]          # 单个机器人的终止标志：布尔值
+            # single_info = info_total[robot_id]          # 单个机器人的额外信息
             
-    #         info1 ={}
-    #         infos1 = [info1] 
+            info1 ={}
+            infos1 = [info1] 
 
-    #         if not single_done:
-    #             model.replay_buffer.add(
-    #                 obs=single_current_obs,                # 单个机器人的当前观测
-    #                 next_obs=single_new_obs,               # 单个机器人的下一个观测
-    #                 action=single_action,                  # 单个机器人的动作（若需数组，可加 np.array()）
-    #                 reward=np.array([single_reward]),      # 奖励：(1,) 维度数组（匹配单智能体 buffer 要求）
-    #                 done=np.array([single_done]),          # 终止标志：(1,) 维度数组
-    #                 infos=infos1                            # 单个机器人的额外信息(未使用)
-    #             )    
-    #     current_obs_total = obs_total
+            if not single_done:
+                model.replay_buffer.add(
+                    obs=single_current_obs,                # 单个机器人的当前观测
+                    next_obs=single_new_obs,               # 单个机器人的下一个观测
+                    action=single_action,                  # 单个机器人的动作（若需数组，可加 np.array()）
+                    reward=np.array([single_reward]),      # 奖励：(1,) 维度数组（匹配单智能体 buffer 要求）
+                    done=np.array([single_done]),          # 终止标志：(1,) 维度数组
+                    infos=infos1                            # 单个机器人的额外信息(未使用)
+                )    
+        current_obs_total = obs_total
 
                 
-    #     # --------------------------  判断回合结束处理（重置环境+打印日志） --------------------------
-    #     has_true = True in info_total.values()
-    #     should_reset = has_true or all(done_total)
-    #     if should_reset:
-    #         model.logger.record("rollout/episode_reward", episode_reward_sum)
-    #         model.logger.record("rollout/episode_length", episode_step_count)
-    #         model.logger.record("time/episodes", model._episode_num, exclude="tensorboard")
-    #         model._episode_num += 1  # 更新回合数
-    #         model.logger.dump(model._episode_num)
-    #         # 打印回合信息
-    #         elapsed_time = time.time() - start_time
-    #         print(f"[回合{model._episode_num}] 步数={current_timestep:6d} | 本回合奖励={episode_reward_sum:6.2f} | "
-    #               f"本回合执行步数={episode_step_count:4d} | 总耗时={elapsed_time:6.2f}s")
+        # --------------------------  判断回合结束处理（重置环境+打印日志） --------------------------
+        has_true = True in info_total.values()
+        should_reset = has_true or all(done_total)
+        if should_reset:
+            model.logger.record("rollout/episode_reward", episode_reward_sum)
+            model.logger.record("rollout/episode_length", episode_step_count)
+            model.logger.record("time/episodes", model._episode_num, exclude="tensorboard")
+            model._episode_num += 1  # 更新回合数
+            model.logger.dump(model._episode_num)
+            # 打印回合信息
+            elapsed_time = time.time() - start_time
+            print(f"[回合{model._episode_num}] 步数={current_timestep:6d} | 本回合奖励={episode_reward_sum:6.2f} | "
+                  f"本回合执行步数={episode_step_count:4d} | 总耗时={elapsed_time:6.2f}s")
                             
-    #         # 重置环境和统计
-    #         current_obs_total = env.reset()
-    #         episode_reward_sum = 0
-    #         episode_step_count = 0
-    #         model._on_step()  # 通知SB3回合结束，更新日志
+            # 重置环境和统计
+            current_obs_total = env.reset()
+            episode_reward_sum = 0
+            episode_step_count = 0
+            model._on_step()  # 通知SB3回合结束，更新日志
 
-    #     # --------------------------  模型评估并记录模型 -------------------------------------
-    #     # 定义当前模型的保存路径（用于非最优时）
-    #     current_policy_path = os.path.join(MODEL_SAVE_PATH, "current_policy_params.pt")
-    #     # 定义最优模型的保存路径
-    #     best_policy_path = os.path.join(MODEL_SAVE_PATH, "best_policy_params.pt")
+        # --------------------------  模型评估并记录模型 -------------------------------------
+        # 定义当前模型的保存路径（用于非最优时）
+        current_policy_path = os.path.join(MODEL_SAVE_PATH, "current_policy_params.pt")
+        # 定义最优模型的保存路径
+        best_policy_path = os.path.join(MODEL_SAVE_PATH, "best_policy_params.pt")
         
-    #     if model._episode_num % EVAL_INTERVAL_EPISODES == 0:
-    #         print("\n" + "=" * 20 + " 触发评估 " + "=" * 20)
-    #         mean_reward, std_reward = evaluate_model(model, env, num_episodes=EVAL_EPISODES_COUNT, deterministic=True)
+        if model._episode_num % EVAL_INTERVAL_EPISODES == 0:
+            print("\n" + "=" * 20 + " 触发评估 " + "=" * 20)
+            mean_reward, std_reward = evaluate_model(model, env, num_episodes=EVAL_EPISODES_COUNT, deterministic=True)
             
-    #         # 记录评估结果到 TensorBoard
-    #         model.logger.record("eval/mean_reward", mean_reward)
-    #         model.logger.record("eval/std_reward", std_reward)
-    #         model.logger.record("time/total_timesteps", current_timestep) # 添加当前步数方便对应
-    #         model.logger.record("time/episodes", model._episode_num)
+            # 记录评估结果到 TensorBoard
+            model.logger.record("eval/mean_reward", mean_reward)
+            model.logger.record("eval/std_reward", std_reward)
+            model.logger.record("time/total_timesteps", current_timestep) # 添加当前步数方便对应
+            model.logger.record("time/episodes", model._episode_num)
 
-    #         print("=" * 50 + "\n")                    
-    #         print(f"[评估结果] 回合数={model._episode_num:6d} | 平均奖励={mean_reward:6.2f} ± {std_reward:5.2f}")
-    #         print("=" * 50 + "\n")     
+            print("=" * 50 + "\n")                    
+            print(f"[评估结果] 回合数={model._episode_num:6d} | 平均奖励={mean_reward:6.2f} ± {std_reward:5.2f}")
+            print("=" * 50 + "\n")     
   
-    #         #保存模型 写好日志
-    #         torch.save(model.policy.state_dict(), current_policy_path)    
-    #         info_save_path = os.path.join(MODEL_SAVE_PATH, "current_model_info.txt")
-    #         with open(info_save_path, "w") as f:
-    #             f.write(f"current_mean_reward: {mean_reward:.2f}\n")
-    #             f.write(f"episode_num: {model._episode_num}\n")
-    #             f.write(f"timestep: {current_timestep}\n")
+            #保存模型 写好日志
+            torch.save(model.policy.state_dict(), current_policy_path)    
+            info_save_path = os.path.join(MODEL_SAVE_PATH, "current_model_info.txt")
+            with open(info_save_path, "w") as f:
+                f.write(f"current_mean_reward: {mean_reward:.2f}\n")
+                f.write(f"episode_num: {model._episode_num}\n")
+                f.write(f"timestep: {current_timestep}\n")
 
                 
 
-    #         if mean_reward > BEST_MEAN_REWARD:    # 记录最优模型
-    #             print(f"🎉 New Best Model Found! ({mean_reward:.2f} > {BEST_MEAN_REWARD:.2f})")
-    #             BEST_MEAN_REWARD = mean_reward # 更新最佳奖励
+            if mean_reward > BEST_MEAN_REWARD:    # 记录最优模型
+                print(f"🎉 New Best Model Found! ({mean_reward:.2f} > {BEST_MEAN_REWARD:.2f})")
+                BEST_MEAN_REWARD = mean_reward # 更新最佳奖励
 
 
-    #             torch.save(model.policy.state_dict(), best_policy_path)                
-    #             info_save_best_path = os.path.join(MODEL_SAVE_PATH, "best_model_info.txt")
-    #             with open(info_save_best_path, "w") as f:
-    #                 f.write(f"best_mean_reward: {mean_reward:.2f}\n")
-    #                 f.write(f"episode_num: {model._episode_num}\n")
-    #                 f.write(f"timestep: {current_timestep}\n")
+                torch.save(model.policy.state_dict(), best_policy_path)                
+                info_save_best_path = os.path.join(MODEL_SAVE_PATH, "best_model_info.txt")
+                with open(info_save_best_path, "w") as f:
+                    f.write(f"best_mean_reward: {mean_reward:.2f}\n")
+                    f.write(f"episode_num: {model._episode_num}\n")
+                    f.write(f"timestep: {current_timestep}\n")
                 
-    #         model.logger.dump(model._episode_num)
+            model.logger.dump(model._episode_num)
 
  
         
-    #     # --------------------------  训练更新模型 --------------------------
-        
-    #     if (current_timestep >= model.learning_starts) and (current_timestep % model.train_freq[0] == 0):
-    #         print(f"\n[训练触发] 总步数={current_timestep:6d} | 执行{model.gradient_steps}轮梯度更新")
-    #         # 调用model.train()执行梯度更新（内部会调用ReplayBuffer.sample()）
-    #         model.train(
-    #             gradient_steps=model.gradient_steps,
-    #             batch_size=model.batch_size
-    #         )
-    #         # 记录训练统计（如更新次数）
-    #         model._n_updates += model.gradient_steps
+        # --------------------------  训练更新模型 --------------------------
+        # if (model._episode_num >= model.learning_starts) and (model._episode_num % model.train_freq[0] == 0):
+        if (current_timestep >= model.learning_starts) and (current_timestep % model.train_freq[0] == 0):
+            # print(f"\n[训练触发] 总步数={current_timestep:6d} | 执行{model.gradient_steps}轮梯度更新")
+            # 调用model.train()执行梯度更新（内部会调用ReplayBuffer.sample()）
+            model.train(
+                gradient_steps=model.gradient_steps,
+                batch_size=model.batch_size
+            )
+            # 记录训练统计（如更新次数）
+            model._n_updates += model.gradient_steps
 
 
-    #     # --------------------------  日志更新打印 --------------------------
-    #     if current_timestep % 5000 == 0:
-    #         model._dump_logs()  # 输出TensorBoard日志和控制台信息
-    #         fps = current_timestep / (time.time() - start_time)
-    #         print(f"[进度] 总步数={current_timestep:6d}/{total_timesteps} | "
-    #               f"更新次数={model._n_updates:6d} | FPS={fps:6.2f}")
+        # --------------------------  日志更新打印 --------------------------
+        if current_timestep % 5000 == 0:
+            model._dump_logs()  # 输出TensorBoard日志和控制台信息
+            fps = current_timestep / (time.time() - start_time)
+            print(f"[进度] 总步数={current_timestep:6d}/{total_timesteps} | "
+                  f"更新次数={model._n_updates:6d} | FPS={fps:6.2f}")
 
-    #     # --------------------------  训练结束清理 --------------------------
-    # print("\n" + "=" * 50)
-    # print("训练结束！")
-    # print("=" * 50)
-    # model.env.close()  # 关闭环境
+        # --------------------------  训练结束清理 --------------------------
+    print("\n" + "=" * 50)
+    print("训练结束！")
+    print("=" * 50)
+    model.env.close()  # 关闭环境
 
 
 
 
 
     # # ============================  小包单车原始推理模型（正常使用时注释）  ============================
-    # # class CompatEnv(gym.Env):
-    # #     def __init__(self, config_path='./easy.yaml', display=False):
-    # #         # 动作空间为线速度和角速度，范围 [-1, 1]
-    # #         self.action_space = spaces.Box(low=np.array([-1.0, -1.0]), high=np.array([1.0, 1.0]), dtype=np.float32)     #二维连续动作空间定义
-    # #         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(5, 185), dtype=np.float32)
-    # #     def step(self):
-    # #         pass
-    # #     def reset(self):
-    # #         pass
-    # # env_alter = CompatEnv()
-    # # model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/akm_best_model", env=env_alter)  
+    # class CompatEnv(gym.Env):
+    #     def __init__(self, config_path='./easy.yaml', display=False):
+    #         # 动作空间为线速度和角速度，范围 [-1, 1]
+    #         self.action_space = spaces.Box(low=np.array([-1.0, -1.0]), high=np.array([1.0, 1.0]), dtype=np.float32)     #二维连续动作空间定义
+    #         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(5, 185), dtype=np.float32)
+    #     def step(self):
+    #         pass
+    #     def reset(self):
+    #         pass
+    # env_alter = CompatEnv()
+    # model = SAC.load("/home/zhangl/DRL_project/Dynamic_obs/self_env/sequence_moving_models/akm_best_model", env=env_alter)  
     
 
-    # # obs = env.reset()
-    # # for i in range(1000):
-    # #     action, _ = model.predict(obs, deterministic=True)
-    # #     obs, reward, done, info = env.step(action)
-    # #     print(reward)
-    # #     if done.all():
-    # #         obs = env.reset()
+    # obs = env.reset()
+    # for i in range(1000):
+    #     action, _ = model.predict(obs, deterministic=True)
+    #     obs, reward, done, info = env.step(action)
+    #     print(reward)
+    #     if done.all():
+    #         obs = env.reset()
